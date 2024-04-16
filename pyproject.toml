@@ -9,6 +9,9 @@ description = "Build, fit, and sample from cognitive models with JAX + NumPyro."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {file = "LICENSE"}
+authors = [
+    {name = "Ami Falk", email="aaf2pz@virginia.edu"},
+]
 keywords = ["cognitive-science", "modeling-tools", "jax", "numpyro"]
 urls = {repository = "https://github.com/compmem/cognax/"}
 dependencies = [
