@@ -5,13 +5,19 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "cognax"
 version = "0.0.1"
+description = "Build, fit, and sample from cognitive models with JAX + NumPyro."
+readme = "README.md"
 requires-python = ">=3.10"
+license = {file = "LICENSE"}
+keywords = ["cognitive-science", "modeling-tools", "jax", "numpyro"]
+urls = {repository = "https://github.com/compmem/cognax/"}
 dependencies = [
     "numpyro",
     "tensorflow-probability",
     "numpy",
 ]
+# pandas is a dependency for df_util.py
 
-
-# [tool.setuptools]
-# packages = ["cognax"]
+[project.optional-dependencies]
+examples = ["arviz", "jupyter", "matplotlib"]
+test = ["pytest"]
