@@ -216,6 +216,6 @@ class WFPTNormalDrift(DiscreteChoiceRT):
             jnp.shape(w),
             jnp.shape(t0),
         )
-        super(DiscreteChoiceRT, self).__init__(
+        super(WFPTNormalDrift, self).__init__(
             n_choice=2, batch_shape=batch_shape, validate_args=validate_args
         )

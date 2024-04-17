@@ -119,6 +119,7 @@ class DiscreteChoiceRT(Distribution):
         """
 
         n_batch_dims = len(self.batch_shape)
+
         get_all_choice_rts = partial(
             all_choice_rts, n_choice=self.n_choice, dt=dt, rel_max_time=rel_max_time
         )
@@ -130,7 +131,9 @@ class DiscreteChoiceRT(Distribution):
             t0=jnp.broadcast_to(self.t0, self.batch_shape),
         )
 
-        probs = jnp.exp(self.log_prob(jnp.moveaxis(choice_rts, -2, 0))) * dt
+        # reshape (*batch_shape, sample_bins, 2) to (sample_bins, *batch_shape, 2)
+        probs = jnp.exp(self.log_prob(jnp.moveaxis(choice_rts, -2, 0)) * dt)
+        # reshape (sample_bins, *batch_shape) to (*batch_shape, sample_bins)
         probs = jnp.moveaxis(probs, 0, -1)
 
         samps = vmap_n(
@@ -141,4 +144,7 @@ class DiscreteChoiceRT(Distribution):
             probs,
         )
 
-        return jnp.moveaxis(samps, -2, 0)
+        # reshape (*batch_shape, *sample_shape, 2) to (*sample_shape, *batch_shape, 2)
+        return jnp.moveaxis(
+            samps, tuple(range(n_batch_dims)), tuple(range(-1 - n_batch_dims, -1))
+        )

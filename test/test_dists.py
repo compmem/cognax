@@ -1,10 +1,24 @@
+import jax.random as random
+
 import numpy as np
 import numpyro
 import pytest
-
-from cognax.decisions import TRDM, WFPT
+from collections import namedtuple
+from cognax.decisions import TRDM, WFPT, WFPTNormalDrift
 
 numpyro.enable_x64(True)
+
+
+TestDist = namedtuple("TestDist", ["dist", "valid_params"])
+
+DISTS = [
+    TestDist(
+        TRDM,
+        [np.full((3,), 0.5), np.full((3,), 1.0), np.full((3,), 1.0), np.array(0.14)],
+    ),
+    TestDist(WFPT, [0.5, 1.0, 0.5, 0.25]),
+    TestDist(WFPTNormalDrift, [0.5, 1.0, 1.0, 0.5, 0.25]),
+]
 
 
 def get_choice_RTs(n_choice, dt, max_RT):
@@ -17,22 +31,21 @@ def get_choice_RTs(n_choice, dt, max_RT):
     return choice_RTs
 
 
-@pytest.mark.parametrize("dist", [WFPT, TRDM])
+@pytest.mark.parametrize("dist", DISTS)
 @pytest.mark.parametrize("batch_shape", [(), (2,), (1, 2), (4, 2)])
 def test_dist_broadcast_value(dist, batch_shape):
-    if dist is WFPT:
-        kwargs = {"v": 0.5, "a": 1.0, "w": 0.5, "t0": 0.25}
-    elif dist is TRDM:
-        kwargs = {
-            "v": np.full((3,), 0.5),
-            "alpha": np.full((3,), 1.0),
-            "sigma": np.full((3,), 1.0),
-            "t0": np.array(0.14),
-        }
-
     choice_RTs = np.broadcast_to(np.array([0, 0.5]), (*batch_shape, 2))
 
-    assert dist(**kwargs).log_prob(value=choice_RTs).shape == batch_shape
+    assert dist.dist(*dist.valid_params).log_prob(value=choice_RTs).shape == batch_shape
+
+
+# @pytest.mark.parametrize("dist", DISTS)
+# @pytest.mark.parametrize("batch_shape", [(1,), (3, 1)])
+# @pytest.mark.parametrize("sample_shape", [(), (1,), (5, 6, 1)])
+# def test_dist_sample_shapes(dist, batch_shape, sample_shape):
+#     valid_params = [np.broadcast_to(param, batch_shape) for param in dist.valid_params]
+
+#     assert dist.dist(*valid_params).sample(random.PRNGKey(0), sample_shape).shape == sample_shape + batch_shape + (2,)
 
 
 def test_wfpt_integrate_to_one():
