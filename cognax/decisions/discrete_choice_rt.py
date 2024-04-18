@@ -132,7 +132,7 @@ class DiscreteChoiceRT(Distribution):
         )
 
         # reshape (*batch_shape, sample_bins, 2) to (sample_bins, *batch_shape, 2)
-        probs = jnp.exp(self.log_prob(jnp.moveaxis(choice_rts, -2, 0)) * dt)
+        probs = jnp.exp(self.log_prob(jnp.moveaxis(choice_rts, -2, 0))) * dt
         # reshape (sample_bins, *batch_shape) to (*batch_shape, sample_bins)
         probs = jnp.moveaxis(probs, 0, -1)
 
