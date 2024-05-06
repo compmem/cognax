@@ -132,7 +132,7 @@ class WFPT(DiscreteChoiceRT):
         "v": constraints.real,
         "a": constraints.positive,
         "w": constraints.unit_interval,
-        "t0": constraints.interval(0, jnp.inf),
+        "t0": constraints.nonnegative,
     }
 
     def log_prob(self, value):
@@ -178,7 +178,7 @@ class WFPTNormalDrift(DiscreteChoiceRT):
         "v_scale": constraints.positive,
         "a": constraints.positive,
         "w": constraints.unit_interval,
-        "t0": constraints.interval(0, jnp.inf),
+        "t0": constraints.nonnegative,
     }
 
     def log_prob(self, value):

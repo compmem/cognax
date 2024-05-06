@@ -133,7 +133,7 @@ class TRDM(DiscreteChoiceRT):
         "v": constraints.positive,
         "alpha": constraints.positive,
         "sigma": constraints.positive,
-        "t0": constraints.interval(0, jnp.inf),
+        "t0": constraints.nonnegative,
         "v_timer": constraints.real,
         "alpha_timer": constraints.positive,
         "sigma_timer": constraints.positive,
