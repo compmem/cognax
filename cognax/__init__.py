@@ -1,3 +1,3 @@
-from cognax import decisions, df_util, util
+from cognax import decisions, df_util, joint_modeling, util
 
-__all__ = ["decisions", "df_util", "util"]
+__all__ = ["decisions", "df_util", "joint_modeling", "util"]
