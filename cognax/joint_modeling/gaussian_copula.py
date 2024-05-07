@@ -20,8 +20,9 @@ class GaussianCopula(Distribution):
         "correlation_cholesky",
     ]
 
-    pytree_data_fields = ("marginal_dists", "marginal_slices", "base_dist")
-
+    pytree_data_fields = ("marginal_dists", "base_dist")
+    pytree_aux_fields = ("marginal_slices")
+    
     def __init__(
         self,
         marginal_dists,
