@@ -2,7 +2,7 @@ import jax.numpy as jnp
 from jax import lax
 
 from numpyro.distributions import constraints
-from numpyro.distributions.util import promote_shapes
+from numpyro.distributions.util import promote_shapes, validate_sample
 
 from cognax.decisions.discrete_choice_rt import DiscreteChoiceRT
 from cognax.util import vmap_n
@@ -135,6 +135,7 @@ class WFPT(DiscreteChoiceRT):
         "t0": constraints.nonnegative,
     }
 
+    @validate_sample
     def log_prob(self, value):
         choices = value[..., 0]
         RTs = value[..., 1]
@@ -149,13 +150,17 @@ class WFPT(DiscreteChoiceRT):
             (v * self.a * w) + 0.5 * jnp.square(v) * RTs + jnp.log(self.a**2)
         )
 
-    def __init__(self, v, a, w, t0, *, validate_args=None):
+    def __init__(self, v, a, w, t0, dt=0.01, rel_max_time=5.0, *, validate_args=None):
         self.v, self.a, self.w, self.t0 = promote_shapes(v, a, w, t0)
         batch_shape = lax.broadcast_shapes(
             jnp.shape(v), jnp.shape(a), jnp.shape(w), jnp.shape(t0)
         )
         super(WFPT, self).__init__(
-            n_choice=2, batch_shape=batch_shape, validate_args=validate_args
+            n_choice=2,
+            dt=dt,
+            rel_max_time=rel_max_time,
+            batch_shape=batch_shape,
+            validate_args=validate_args,
         )
 
 
@@ -181,6 +186,7 @@ class WFPTNormalDrift(DiscreteChoiceRT):
         "t0": constraints.nonnegative,
     }
 
+    @validate_sample
     def log_prob(self, value):
         choices = value[..., 0]
         RTs = value[..., 1]
@@ -205,7 +211,9 @@ class WFPTNormalDrift(DiscreteChoiceRT):
             / (self.a**2)
         )
 
-    def __init__(self, v_loc, v_scale, a, w, t0, *, validate_args=None):
+    def __init__(
+        self, v_loc, v_scale, a, w, t0, dt=0.01, rel_max_time=5.0, *, validate_args=None
+    ):
         self.v_loc, self.v_scale, self.a, self.w, self.t0 = promote_shapes(
             v_loc, v_scale, a, w, t0
         )
@@ -217,5 +225,9 @@ class WFPTNormalDrift(DiscreteChoiceRT):
             jnp.shape(t0),
         )
         super(WFPTNormalDrift, self).__init__(
-            n_choice=2, batch_shape=batch_shape, validate_args=validate_args
+            n_choice=2,
+            dt=dt,
+            rel_max_time=rel_max_time,
+            batch_shape=batch_shape,
+            validate_args=validate_args,
         )

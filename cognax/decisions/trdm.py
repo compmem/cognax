@@ -4,7 +4,7 @@ import jax.numpy as jnp
 from jax import lax
 
 from numpyro.distributions import constraints
-from numpyro.distributions.util import promote_shapes
+from numpyro.distributions.util import promote_shapes, validate_sample
 from tensorflow_probability.substrates.jax import distributions as tfd
 
 from cognax.decisions.discrete_choice_rt import DiscreteChoiceRT
@@ -139,6 +139,7 @@ class TRDM(DiscreteChoiceRT):
         "sigma_timer": constraints.positive,
     }
 
+    @validate_sample
     def log_prob(self, value):
         choices, RTs = value[..., 0].astype(int), value[..., 1] - self.t0
 
@@ -184,6 +185,8 @@ class TRDM(DiscreteChoiceRT):
         v_timer=None,
         alpha_timer=None,
         sigma_timer=None,
+        dt=0.01,
+        rel_max_time=5.0,
         validate_args=None,
     ):
         timer_params = (v_timer, alpha_timer, sigma_timer)
@@ -225,5 +228,9 @@ class TRDM(DiscreteChoiceRT):
         )
 
         super(TRDM, self).__init__(
-            n_choice=n_choice, batch_shape=batch_shape, validate_args=validate_args
+            n_choice=n_choice,
+            dt=dt,
+            rel_max_time=rel_max_time,
+            batch_shape=batch_shape,
+            validate_args=validate_args,
         )

@@ -39,15 +39,6 @@ def test_dist_broadcast_value(dist, batch_shape):
     assert dist.dist(*dist.valid_params).log_prob(value=choice_RTs).shape == batch_shape
 
 
-# @pytest.mark.parametrize("dist", DISTS)
-# @pytest.mark.parametrize("batch_shape", [(1,), (3, 1)])
-# @pytest.mark.parametrize("sample_shape", [(), (1,), (5, 6, 1)])
-# def test_dist_sample_shapes(dist, batch_shape, sample_shape):
-#     valid_params = [np.broadcast_to(param, batch_shape) for param in dist.valid_params]
-
-#     assert dist.dist(*valid_params).sample(random.PRNGKey(0), sample_shape).shape == sample_shape + batch_shape + (2,)
-
-
 def test_wfpt_integrate_to_one():
     dt = 0.0001
     choice_RTs = get_choice_RTs(n_choice=2, dt=dt, max_RT=10)
