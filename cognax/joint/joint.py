@@ -1,5 +1,33 @@
+import numpy as np
+import jax.numpy as jnp
+
 import numpyro
+import numpyro.distributions as dist
 from numpyro.distributions.transforms import biject_to
+
+
+# XXX: this will be added to numpyro.distributions.utils in https://github.com/pyro-ppl/numpyro/pull/1779
+def assert_one_of(**kwargs):
+    """
+    Assert that exactly one of the keyword arguments is not None.
+    """
+    specified = [key for key, value in kwargs.items() if value is not None]
+    if len(specified) != 1:
+        raise ValueError(
+            f"Exactly one of {list(kwargs)} must be specified; got {specified}."
+        )
+
+
+def assert_valid_corr_indeces(cov_n_dim, indices):
+    """
+    Valid correlation indices are unique and only specify the lower triangular.
+    """
+    cov_prototype = np.zeros((cov_n_dim, cov_n_dim))
+    for idx in indices:
+        cov_prototype[idx] += 1
+
+    assert np.all(cov_prototype[np.tril_indices(cov_n_dim, k=-1)] == 1)
+    assert np.all(cov_prototype[np.triu_indices(cov_n_dim, k=1)] == 0)
 
 
 def constrain_params(unconstrained_params, constraints_dict):
@@ -53,3 +81,79 @@ def constrain_params(unconstrained_params, constraints_dict):
             )
 
     return params
+
+
+def make_sample_structured_cov(cov_n_dim, corr_priors, indexers=None, masks=None):
+    """
+    Create a function to sample from a structured covariance matrix.
+
+    Args:
+        cov_n_dim (int): number of features in the covariance matrix
+        corr_priors (list): list of prior Distributions on the correlation for each indexer/mask.
+        indexers (list, optional): list of indexers that map each prior to coordinates in the covariance matrix.
+        masks (list, optional): list of boolean arrays with shape `(cov_n_dim, cov_n_dim)` containing True if
+            that element in `masks[i]` should have prior `corr_priors[i]`
+
+    ```python
+    import jax.numpy as jnp
+    import numpyro.distributions as dist
+
+    # --- with indexers ---
+
+    cov_n_dim = 4
+    indexers = [jnp.tril_indices(cov_n_dim, k=-2), jnp.diag_indices(cov_n_dim, k=-1)]
+    corr_priors = [dist.Uniform(-1, 1), dist.Beta(1, 1)]
+
+    sample_cov = make_sample_structured_cov(cov_n_dim, corr_priors, indexers=indexers)
+
+    # --- with mask ---
+
+    cov_prototype = jnp.ones((4, 4), dtype=jnp.bool_)
+    masks = [jnp.tril(cov_prototype, k=-2), jnp.diag(cov_prototype, k=-1)]
+    corr_priors = [dist.Uniform(-1, 1), dist.Beta(1, 1)]
+
+    sample_cov = make_sample_structured_cov(4, corr_priors, masks=masks)
+    ```
+
+    Returns:
+        Callable function to sample a structured covariance matrix
+    """
+
+    assert_one_of(indexers=indexers, masks=masks)
+
+    if masks:
+        assert all([mask.shape == (cov_n_dim, cov_n_dim) for mask in masks])
+        indexers = [jnp.nonzero(mask) for mask in masks]
+
+    assert len(corr_priors) == len(indexers)
+    assert all([isinstance(prior, dist.Distribution) for prior in corr_priors])
+    assert all(
+        [
+            jnp.broadcast_shapes(prior.batch_shape, (len(idx),))
+            for prior, idx in zip(corr_priors, indexers)
+        ]
+    )
+    assert_valid_corr_indeces(cov_n_dim, indexers)
+
+    def sample_structured_cov(scale):
+        """
+        Sample from a structured covariance matrix.
+
+        Args:
+            scale: array-like of shape `(cov_n_dim,)` containing the variance
+                for each variable
+        """
+        cov = scale[:, jnp.newaxis] * scale
+
+        for i, (prior, idx) in enumerate(zip(corr_priors, indexers)):
+            with numpyro.plate(f"_corr_plate_{i}", len(idx[0])):
+                params = numpyro.sample(f"_corr_{i}", prior)
+                cov = cov.at[idx].multiply(params, unique_indices=True)
+
+        cov = cov.at[jnp.triu_indices_from(cov, k=1)].set(
+            cov[jnp.tril_indices_from(cov, k=-1)]
+        )
+
+        return numpyro.deterministic("cov", cov)
+
+    return sample_structured_cov
