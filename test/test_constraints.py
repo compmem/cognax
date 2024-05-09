@@ -11,7 +11,7 @@ import jax.numpy as jnp
 from jax.tree_util import tree_map
 
 from numpyro.distributions import constraints
-from cognax.joint_modeling.collection import constraint_collection
+from cognax.joint import _ConstraintCollection
 
 _a = jnp.asarray
 
@@ -22,7 +22,7 @@ class T(namedtuple("TestCase", ["constraint_cls", "params", "kwargs"])):
 
 PARAMETRIZED_CONSTRAINTS = {
     "constraint_collection": T(
-        constraint_collection,
+        _ConstraintCollection,
         ([constraints.greater_than(_a(1.0)), constraints.greater_than(_a(0.0))],),
         dict(slices=[(0, 1), (1, 2)]),
     ),

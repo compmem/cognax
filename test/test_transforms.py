@@ -15,7 +15,7 @@ from jax.tree_util import tree_map
 from numpyro.distributions import constraints
 from numpyro.distributions import transforms
 from numpyro.distributions.transforms import biject_to
-from cognax.joint_modeling.collection import constraint_collection, CollectionTransform
+from cognax.joint import _ConstraintCollection, CollectionTransform
 
 
 class T(namedtuple("TestCase", ["transform_cls", "params", "kwargs"])):
@@ -173,7 +173,7 @@ def test_bijective_transforms(transform, shape):
     "constraint, shape",
     [
         (
-            constraint_collection(
+            _ConstraintCollection(
                 [
                     constraints.positive,
                     constraints.interval(np.array(0.0), np.array(1.0)),

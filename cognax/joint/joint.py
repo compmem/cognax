@@ -8,7 +8,7 @@ def constrain_params(unconstrained_params, constraints_dict):
     and register constrained params as deterministic sites.
 
     This is a useful pattern when drawing correlated latent parameters with different supports
-    and is a computationally cheaper alternative to `cognax.joint_modeling.GaussianCopula`.
+    and is a computationally cheaper alternative to `cognax.joint.GaussianCopula`.
 
     Ex:
 
