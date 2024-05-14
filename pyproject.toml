@@ -15,7 +15,7 @@ authors = [
 keywords = ["cognitive-science", "modeling-tools", "jax", "numpyro"]
 urls = {repository = "https://github.com/compmem/cognax/"}
 dependencies = [
-    "numpyro",
+    "numpyro >= 0.15",
     "tensorflow-probability",
     "numpy",
 ]
