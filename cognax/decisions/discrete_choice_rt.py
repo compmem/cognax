@@ -9,11 +9,15 @@ from numpyro.distributions.util import lazy_property
 from cognax.util import vmap_n
 
 
-def all_choice_rts(t0, n_choice, dt=0.01, rel_max_time=5.0):
+def all_choice_rts(t0, n_choice, dt=0.01, rel_max_time=5.0, non_response_val=99):
     t_range = t0 + jnp.arange(0, rel_max_time + dt, dt)
 
     choices = jnp.repeat(jnp.arange(n_choice), repeats=len(t_range))
     rts = jnp.concatenate([t_range] * n_choice)
+
+    # add non repsonse
+    choices = jnp.concatenate([choices, jnp.array([non_response_val])])
+    rts = jnp.concat([rts, jnp.array([non_response_val])])
     return jnp.vstack([choices, rts]).T
 
 
