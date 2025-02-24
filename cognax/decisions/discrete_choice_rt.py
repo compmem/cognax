@@ -2,22 +2,31 @@ from functools import partial
 
 import jax.numpy as jnp
 import jax.random as random
-
+from jax import Array
+from jax.typing import ArrayLike
 from numpyro.distributions import Distribution, constraints
 from numpyro.distributions.util import lazy_property
 
 from cognax.util import vmap_n
 
 
-def all_choice_rts(t0, n_choice, dt=0.01, rel_max_time=5.0, non_response_val=99):
+def all_choice_rts(
+    t0: float,
+    valid_choice_values: ArrayLike,
+    non_response_val,
+    dt: float = 0.01,
+    rel_max_time: float = 5.0,
+) -> Array:
     t_range = t0 + jnp.arange(0, rel_max_time + dt, dt)
 
-    choices = jnp.repeat(jnp.arange(n_choice), repeats=len(t_range))
-    rts = jnp.concatenate([t_range] * n_choice)
+    # normal choices
+    choices = jnp.repeat(valid_choice_values, repeats=len(t_range))
+    rts = jnp.concatenate([t_range] * len(valid_choice_values))
 
     # add non repsonse
     choices = jnp.concatenate([choices, jnp.array([non_response_val])])
     rts = jnp.concat([rts, jnp.array([non_response_val])])
+
     return jnp.vstack([choices, rts]).T
 
 
@@ -53,8 +62,7 @@ class _DiscreteChoiceRTConstraint(constraints._SingletonConstraint):
 
 
 class DiscreteChoiceRT(Distribution):
-    """
-    Base class for discrete choice-rt distributions.
+    """Base class for discrete choice-rt distributions.
 
     Input to `log_prob` should be a `(..., 2)` array_like of choice-RTs. The first
     event dimension should contain choice indeces in {0, ..., self.n_choice}, and the
@@ -64,20 +72,31 @@ class DiscreteChoiceRT(Distribution):
     support = _DiscreteChoiceRTConstraint()
 
     def __init__(
-        self, n_choice, dt=0.01, rel_max_time=5.0, batch_shape=(), *, validate_args=None
+        self,
+        valid_choice_values,
+        non_response_val,
+        dt=0.01,
+        rel_max_time=5.0,
+        batch_shape=(),
+        *,
+        validate_args=None,
     ):
-        self.n_choice = n_choice
+        self.valid_choice_values = valid_choice_values
+        self.non_response_val = non_response_val
         self.dt = dt
         self.rel_max_time = rel_max_time
 
         super().__init__(
-            batch_shape=batch_shape, event_shape=(2,), validate_args=validate_args
+            batch_shape=batch_shape,
+            event_shape=(2,),
+            validate_args=validate_args,
         )
 
     @lazy_property
     def probs(self):
-        """
-        The probability of selecting each choice index. By default, we compute this
+        """Get the probability of selecting each choice index.
+
+        By default, we compute this
         by marginalizing the rt distribution at each choice (discretizing continous time).
 
         XXX: We don't include the probability of a non-response by default.
@@ -86,7 +105,8 @@ class DiscreteChoiceRT(Distribution):
 
         get_all_choice_rts = partial(
             all_choice_rts,
-            n_choice=self.n_choice,
+            valid_choice_values=self.valid_choice_values,
+            non_response_val=self.non_response_val,
             dt=self.dt,
             rel_max_time=self.rel_max_time,
         )
@@ -96,17 +116,20 @@ class DiscreteChoiceRT(Distribution):
             t0=jnp.broadcast_to(self.t0, self.batch_shape),
         )
 
-        probs_each_dt = (
-            jnp.exp(self.log_prob(jnp.moveaxis(choice_rts, -2, 0))) * self.dt
-        )
+        probs_each_dt = jnp.exp(self.log_prob(jnp.moveaxis(choice_rts, -2, 0))) * self.dt
         probs_each_dt = jnp.moveaxis(probs_each_dt, 0, -1)
 
         probs = jnp.zeros((*self.batch_shape, self.n_choice))
 
-        for choice in range(self.n_choice):
+        # marginalize the RT values away
+        all_possible_choices = jnp.concat(
+            [self.valid_choice_values, jnp.array([self.non_response_val])],
+        )
+        for choice in all_possible_choices:
             active_probs = jnp.where(choice_rts[..., 0] == choice, probs_each_dt, 0.0)
             probs = probs.at[..., choice].set(jnp.sum(active_probs, axis=-1))
 
+        # ensure it returns a prob distribution (i.e. sums to 1)
         return probs / jnp.sum(probs, axis=-1)
 
     def sample(self, key, sample_shape=()):
@@ -129,7 +152,8 @@ class DiscreteChoiceRT(Distribution):
 
         get_all_choice_rts = partial(
             all_choice_rts,
-            n_choice=self.n_choice,
+            valid_choice_values=self.valid_choice_values,
+            non_response_val=self.non_response_val,
             dt=self.dt,
             rel_max_time=self.rel_max_time,
         )
@@ -155,6 +179,4 @@ class DiscreteChoiceRT(Distribution):
         )
 
         # reshape (*batch_shape, *sample_shape, 2) to (*sample_shape, *batch_shape, 2)
-        return jnp.moveaxis(
-            samps, tuple(range(n_batch_dims)), tuple(range(-1 - n_batch_dims, -1))
-        )
+        return jnp.moveaxis(samps, tuple(range(n_batch_dims)), tuple(range(-1 - n_batch_dims, -1)))

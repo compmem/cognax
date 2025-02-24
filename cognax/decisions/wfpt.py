@@ -94,9 +94,7 @@ def fnorm(x, w):
     """
     y = jnp.abs(x)
 
-    densities = jnp.where(
-        use_fast_expansion(y), fnorm_fast(y, w), fnorm_slow(y, w)
-    ).squeeze()
+    densities = jnp.where(use_fast_expansion(y), fnorm_fast(y, w), fnorm_slow(y, w)).squeeze()
 
     return jnp.where(x > 0, densities, 0.0)
 
@@ -135,32 +133,56 @@ class WFPT(DiscreteChoiceRT):
         "t0": constraints.nonnegative,
     }
 
-    @validate_sample
-    def log_prob(self, value):
-        choices = value[..., 0]
-        RTs = value[..., 1]
-
-        v = jnp.where(choices == 1, -self.v, self.v)
-        w = jnp.where(choices == 1, 1 - self.w, self.w)
-
-        RTs, w = jnp.broadcast_arrays(RTs, w)
-        p = vmap_n(fnorm, n_times=RTs.ndim, x=(RTs - self.t0) / self.a**2, w=w)
-
-        return jnp.log(p) - (
-            (v * self.a * w) + 0.5 * jnp.square(v) * RTs + jnp.log(self.a**2)
-        )
-
     def __init__(self, v, a, w, t0, dt=0.01, rel_max_time=5.0, *, validate_args=None):
         self.v, self.a, self.w, self.t0 = promote_shapes(v, a, w, t0)
-        batch_shape = lax.broadcast_shapes(
-            jnp.shape(v), jnp.shape(a), jnp.shape(w), jnp.shape(t0)
-        )
+
+        # set choice responses
+        self.valid_choice_values = jnp.array([1, 2])
+        self.non_response_val = 0
+
+        batch_shape = lax.broadcast_shapes(jnp.shape(v), jnp.shape(a), jnp.shape(w), jnp.shape(t0))
         super(WFPT, self).__init__(
-            n_choice=2,
+            valid_choice_values=self.valid_choice_values,
+            non_response_val=self.non_response_val,
             dt=dt,
             rel_max_time=rel_max_time,
             batch_shape=batch_shape,
             validate_args=validate_args,
+        )
+
+        # Get prob of non response
+        t_range = self.t0 + jnp.arange(0, self.rel_max_time + self.dt, self.dt)
+
+        # normal choices
+        choices = jnp.repeat(self.valid_choice_values, repeats=len(t_range))
+        rts = jnp.concatenate([t_range] * len(self.valid_choice_values))
+
+        all_valid_vals = jnp.vstack([choices, rts]).T
+        log_probs = self.log_prob_valid(all_valid_vals)
+        probs = jnp.exp(log_probs) * (t_range[1] - t_range[0])
+        prob_of_valid_response = probs.sum()
+
+        self.non_response_prob = 1 - prob_of_valid_response
+
+    def log_prob_valid(self, value):
+        choices = value[..., 0]
+        RTs = value[..., 1]
+
+        # if choice is incorrect, that is equivalent to correct if oppositive v and w
+        v = jnp.where(choices == 2, -self.v, self.v)
+        w = jnp.where(choices == 2, 1 - self.w, self.w)
+
+        RTs, w = jnp.broadcast_arrays(RTs, w)
+        p = vmap_n(fnorm, n_times=RTs.ndim, x=(RTs - self.t0) / self.a**2, w=w)
+
+        return jnp.log(p) - ((v * self.a * w) + 0.5 * jnp.square(v) * RTs + jnp.log(self.a**2))
+
+    @validate_sample
+    def log_prob(self, value):
+        return jnp.where(
+            value[..., 0] == self.non_response_val,
+            jnp.log(self.non_response_prob),
+            self.log_prob_valid(value),
         )
 
 
@@ -191,8 +213,8 @@ class WFPTNormalDrift(DiscreteChoiceRT):
         choices = value[..., 0]
         RTs = value[..., 1]
 
-        v_loc = jnp.where(choices == 1, -self.v_loc, self.v_loc)
-        w = jnp.where(choices == 1, 1 - self.w, self.w)
+        v_loc = jnp.where(choices == 2, -self.v_loc, self.v_loc)
+        w = jnp.where(choices == 2, 1 - self.w, self.w)
 
         RTs, w = jnp.broadcast_arrays(RTs, w)
         p = vmap_n(fnorm, n_times=RTs.ndim, x=(RTs - self.t0) / self.a**2, w=w)
@@ -200,23 +222,15 @@ class WFPTNormalDrift(DiscreteChoiceRT):
         return jnp.log(
             jnp.exp(
                 jnp.log(p)
-                + (
-                    (self.a * w * self.v_scale) ** 2
-                    - 2 * self.a * v_loc * w
-                    - (v_loc**2) * RTs
-                )
+                + ((self.a * w * self.v_scale) ** 2 - 2 * self.a * v_loc * w - (v_loc**2) * RTs)
                 / (2 * (self.v_scale**2) * RTs + 2)
             )
             / jnp.sqrt((self.v_scale**2) * RTs + 1)
             / (self.a**2)
         )
 
-    def __init__(
-        self, v_loc, v_scale, a, w, t0, dt=0.01, rel_max_time=5.0, *, validate_args=None
-    ):
-        self.v_loc, self.v_scale, self.a, self.w, self.t0 = promote_shapes(
-            v_loc, v_scale, a, w, t0
-        )
+    def __init__(self, v_loc, v_scale, a, w, t0, dt=0.01, rel_max_time=5.0, *, validate_args=None):
+        self.v_loc, self.v_scale, self.a, self.w, self.t0 = promote_shapes(v_loc, v_scale, a, w, t0)
         batch_shape = lax.broadcast_shapes(
             jnp.shape(v_loc),
             jnp.shape(v_scale),
@@ -225,7 +239,8 @@ class WFPTNormalDrift(DiscreteChoiceRT):
             jnp.shape(t0),
         )
         super(WFPTNormalDrift, self).__init__(
-            n_choice=2,
+            valid_choice_values=jnp.array([1, 2]),
+            non_response_val=0,
             dt=dt,
             rel_max_time=rel_max_time,
             batch_shape=batch_shape,
