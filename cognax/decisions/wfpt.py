@@ -147,7 +147,7 @@ class WFPT(DiscreteChoiceRT):
         p = vmap_n(fnorm, n_times=RTs.ndim, x=(RTs - self.t0) / self.a**2, w=w)
 
         return jnp.log(p) - (
-            (v * self.a * w) + 0.5 * jnp.square(v) * RTs + jnp.log(self.a**2)
+            (v * self.a * w) + 0.5 * jnp.square(v) * (RTs - self.t0) + jnp.log(self.a**2)
         )
 
     def __init__(self, v, a, w, t0, dt=0.01, rel_max_time=5.0, *, validate_args=None):
@@ -205,9 +205,9 @@ class WFPTNormalDrift(DiscreteChoiceRT):
                     - 2 * self.a * v_loc * w
                     - (v_loc**2) * RTs
                 )
-                / (2 * (self.v_scale**2) * RTs + 2)
+                / (2 * (self.v_scale**2) * (RTs - self.t0) + 2)
             )
-            / jnp.sqrt((self.v_scale**2) * RTs + 1)
+            / jnp.sqrt((self.v_scale**2) * (RTs - self.t0) + 1)
             / (self.a**2)
         )
 
