@@ -19,4 +19,4 @@ dependencies = ["numpyro >= 0.21", "numpy"]
 examples = ["arviz", "jupyter", "matplotlib"]
 
 [dependency-groups]
-dev = ["pytest"]
+dev = ["pytest", "ruff"]

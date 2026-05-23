@@ -5,10 +5,16 @@ from jax import lax
 
 from numpyro.distributions import constraints
 from numpyro.distributions.util import promote_shapes, validate_sample
-from tensorflow_probability.substrates.jax import distributions as tfd
 
 from cognax.decisions.discrete_choice_rt import DiscreteChoiceRT
 from cognax.util import vmap_n
+
+
+_TRDM_DISABLED_MESSAGE = (
+    "TRDM is temporarily disabled because it depends on TensorFlow Probability's "
+    "JAX substrate, which is not currently compatible with the development "
+    "environment."
+)
 
 
 def log_p_choice(x, v, sigma, alpha):
@@ -21,7 +27,8 @@ def log_p_choice(x, v, sigma, alpha):
         sigma: diffusion coefficient
         alpha: decision threshold
     """
-    return tfd.InverseGaussian(alpha / v, alpha**2 / sigma**2).log_prob(x)
+    # return tfd.InverseGaussian(alpha / v, alpha**2 / sigma**2).log_prob(x)
+    raise NotImplementedError(_TRDM_DISABLED_MESSAGE)
 
 
 def cum_log_p_not_choice(x, v, sigma, alpha):
@@ -34,9 +41,10 @@ def cum_log_p_not_choice(x, v, sigma, alpha):
         sigma: diffusion coefficient
         alpha: decision threshold
     """
-    return jnp.log(
-        1 - tfd.InverseGaussian(alpha / v, alpha**2 / sigma**2).cdf(x)
-    )  # XXX guard in case this is 0?
+    # return jnp.log(
+    #     1 - tfd.InverseGaussian(alpha / v, alpha**2 / sigma**2).cdf(x)
+    # )  # XXX guard in case this is 0?
+    raise NotImplementedError(_TRDM_DISABLED_MESSAGE)
 
 
 def trdm_log_dens(
@@ -189,6 +197,8 @@ class TRDM(DiscreteChoiceRT):
         rel_max_time=5.0,
         validate_args=None,
     ):
+        raise NotImplementedError(_TRDM_DISABLED_MESSAGE)
+
         timer_params = (v_timer, alpha_timer, sigma_timer)
 
         if all([param is None for param in timer_params]):
@@ -203,9 +213,9 @@ class TRDM(DiscreteChoiceRT):
             )
         n_choice = v.shape[-1]
 
-        assert all(
-            param.shape[-1] == n_choice for param in (v, alpha, sigma)
-        ), "All choice params must have consistent rightmost (choice) dimension"
+        assert all(param.shape[-1] == n_choice for param in (v, alpha, sigma)), (
+            "All choice params must have consistent rightmost (choice) dimension"
+        )
 
         (self.v, self.alpha, self.sigma, t0, v_timer, alpha_timer, sigma_timer) = (
             promote_shapes(v, alpha, sigma, t0, v_timer, alpha_timer, sigma_timer)
