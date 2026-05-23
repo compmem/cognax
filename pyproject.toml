@@ -7,20 +7,16 @@ name = "cognax"
 version = "0.0.1"
 description = "Build, fit, and sample from cognitive models with JAX + NumPyro."
 readme = "README.md"
-requires-python = ">=3.10"
-license = {file = "LICENSE"}
-authors = [
-    {name = "Ami Falk", email="aaf2pz@virginia.edu"},
-]
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+authors = [{ name = "Ami Falk", email = "aaf2pz@virginia.edu" }]
 keywords = ["cognitive-science", "modeling-tools", "jax", "numpyro"]
-urls = {repository = "https://github.com/compmem/cognax/"}
-dependencies = [
-    "numpyro >= 0.15",
-    "tensorflow-probability",
-    "numpy",
-]
+urls = { repository = "https://github.com/compmem/cognax/" }
+dependencies = ["numpyro >= 0.21", "numpy"]
 # pandas is a dependency for df_util.py
 
 [project.optional-dependencies]
 examples = ["arviz", "jupyter", "matplotlib"]
-test = ["pytest"]
+
+[dependency-groups]
+dev = ["pytest"]
