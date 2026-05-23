@@ -1,10 +1,12 @@
 [build-system]
-requires = ["setuptools"]
-build-backend = "setuptools.build_meta"
+requires = ["flit_core>=3.12,<4"]
+build-backend = "flit_core.buildapi"
 
 [project]
 name = "cognax"
-version = "0.0.1"
+
+# This is set automatically by flit using `penzai.__version__`
+dynamic = ["version"]
 description = "Build, fit, and sample from cognitive models with JAX + NumPyro."
 readme = "README.md"
 requires-python = ">=3.12"
