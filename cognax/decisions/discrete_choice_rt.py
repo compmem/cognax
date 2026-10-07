@@ -58,6 +58,7 @@ class DiscreteChoiceRT(Distribution):
     """
 
     support = _DiscreteChoiceRTConstraint()
+    pytree_aux_fields = ("n_choice", "dt", "rel_max_time")
 
     def __init__(
         self, n_choice, dt=0.01, rel_max_time=5.0, batch_shape=(), *, validate_args=None

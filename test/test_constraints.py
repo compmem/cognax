@@ -48,16 +48,15 @@ def test_parametrized_constraint_pytree(cls, cst_args, cst_kwargs):
     jitted_out_cst = jit(out_cst)
 
     assert jitted_in_cst(constraint, 1.0) == 1.0
-    assert jitted_out_cst(constraint, 1.0) == constraint
+    assert jitted_out_cst(constraint, 1.0).eq(constraint)
 
     assert jnp.allclose(
         vmap(in_cst, in_axes=(None, 0), out_axes=0)(constraint, jnp.ones(3)),
         jnp.ones(3),
     )
 
-    assert (
-        vmap(out_cst, in_axes=(None, 0), out_axes=None)(constraint, jnp.ones(3))
-        == constraint
+    assert vmap(out_cst, in_axes=(None, 0), out_axes=None)(constraint, jnp.ones(3)).eq(
+        constraint
     )
 
     if len(cst_args) > 0:
@@ -67,7 +66,7 @@ def test_parametrized_constraint_pytree(cls, cst_args, cst_kwargs):
         vmapped_csts = jit(vmap(lambda args: cls(*args, **cst_kwargs), in_axes=(0,)))(
             vmapped_cst_args
         )
-        assert vmap(lambda x: x == constraint, in_axes=0)(vmapped_csts).all()
+        assert vmap(lambda x: x.eq(constraint), in_axes=0)(vmapped_csts).all()
 
         twice_vmapped_cst_args = tree_map(lambda x: x[None], vmapped_cst_args)
 
@@ -77,7 +76,7 @@ def test_parametrized_constraint_pytree(cls, cst_args, cst_kwargs):
                 in_axes=(0,),
             ),
         )(twice_vmapped_cst_args)
-        assert vmap(vmap(lambda x: x == constraint, in_axes=0), in_axes=0)(
+        assert vmap(vmap(lambda x: x.eq(constraint), in_axes=0), in_axes=0)(
             vmapped_csts
         ).all()
 
@@ -97,6 +96,6 @@ def test_parametrized_constraint_eq(cls, cst_args, cst_kwargs):
     # by abstract values
     @jit
     def check_constraints(c1, c2):
-        return c1 == c2
+        return c1.eq(c2)
 
     assert check_constraints(constraint, constraint2)
