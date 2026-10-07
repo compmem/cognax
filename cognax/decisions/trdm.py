@@ -200,7 +200,8 @@ class TRDM(DiscreteChoiceRT):
 
         if all([param is None for param in timer_params]):
             self.timer = False
-            v_timer, alpha_timer, sigma_timer = jnp.nan, jnp.nan, jnp.nan
+            # unused placeholders, valid so they pass numpyro arg validation
+            v_timer, alpha_timer, sigma_timer = 1.0, 1.0, 1.0
         elif all([param is not None for param in timer_params]):
             self.timer = True
         else:

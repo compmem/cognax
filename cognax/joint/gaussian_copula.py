@@ -52,14 +52,14 @@ class _ConstraintCollection(Constraint):
             )
         return feasible_likes
 
-    def __eq__(self, other):
+    def eq(self, other, static=False):
         if not isinstance(other, _ConstraintCollection) or self.slices != other.slices:
             return False
         constraints_match = True
         for constraint, other_constraint in zip(
             self.base_constraints, other.base_constraints
         ):
-            constraints_match = constraints_match & (constraint == other_constraint)
+            constraints_match = constraints_match & constraint.eq(other_constraint, static=static)
         return constraints_match
 
     def tree_flatten(self):
@@ -124,14 +124,14 @@ class CollectionTransform(Transform):
             intermediates.append(inter)
         return y, intermediates
 
-    def __eq__(self, other):
+    def eq(self, other, static=False):
         if not isinstance(other, CollectionTransform) or self.slices != other.slices:
             return False
         transforms_match = True
         for transform, other_transform in zip(
             self.base_transforms, other.base_transforms
         ):
-            transforms_match = transforms_match & (transform == other_transform)
+            transforms_match = transforms_match & transform.eq(other_transform, static=static)
         return transforms_match
 
     def tree_flatten(self):
