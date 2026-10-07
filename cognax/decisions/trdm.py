@@ -5,7 +5,7 @@ from jax import lax
 
 from numpyro.distributions import constraints
 from numpyro.distributions.util import promote_shapes, validate_sample
-from tensorflow_probability.substrates.jax import distributions as tfd
+from jax.scipy.special import log_ndtr
 
 from cognax.decisions.discrete_choice_rt import DiscreteChoiceRT
 from cognax.util import vmap_n
@@ -21,7 +21,10 @@ def log_p_choice(x, v, sigma, alpha):
         sigma: diffusion coefficient
         alpha: decision threshold
     """
-    return tfd.InverseGaussian(alpha / v, alpha**2 / sigma**2).log_prob(x)
+    mu, lam = alpha / v, alpha**2 / sigma**2
+    return 0.5 * jnp.log(lam / (2 * jnp.pi * x**3)) - lam * (x - mu) ** 2 / (
+        2 * mu**2 * x
+    )
 
 
 def cum_log_p_not_choice(x, v, sigma, alpha):
@@ -34,9 +37,13 @@ def cum_log_p_not_choice(x, v, sigma, alpha):
         sigma: diffusion coefficient
         alpha: decision threshold
     """
-    return jnp.log(
-        1 - tfd.InverseGaussian(alpha / v, alpha**2 / sigma**2).cdf(x)
-    )  # XXX guard in case this is 0?
+    mu, lam = alpha / v, alpha**2 / sigma**2
+    log_sf_a = log_ndtr(-jnp.sqrt(lam / x) * (x / mu - 1))
+    log_sf_b = log_ndtr(-jnp.sqrt(lam / x) * (x / mu + 1))
+
+    # inverse gaussian survival, Phi(-a) - exp(2 lam / mu) Phi(-b), in log space
+    # so it doesn't underflow to log(0) in the right tail
+    return log_sf_a + jnp.log(-jnp.expm1(2 * lam / mu + log_sf_b - log_sf_a))
 
 
 def trdm_log_dens(
