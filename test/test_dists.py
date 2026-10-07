@@ -74,3 +74,32 @@ def test_trdm_integrate_to_one(timer_args):
     integral = np.sum(probs * dt)
 
     assert np.isclose(integral, 1, atol=0.01)
+
+
+@pytest.mark.parametrize(
+    "timer_args",
+    [
+        {"v_timer": None, "alpha_timer": None, "sigma_timer": None},
+        {"v_timer": 0.2, "alpha_timer": 0.4, "sigma_timer": 0.3},
+    ],
+)
+def test_trdm_nonresponse_completes_probability(timer_args):
+    """P(response before deadline) + P(nonresponse at deadline) = 1"""
+    dt, t0, deadline = 0.0001, 0.14, 1.0
+
+    trdm = TRDM(
+        v=np.full((3,), 0.5),
+        alpha=np.full((3,), 1.0),
+        sigma=np.full((3,), 1.0),
+        t0=np.array(t0),
+        **timer_args,
+    )
+
+    t_range = np.arange(t0 + dt, deadline, dt)
+    choice_RTs = np.vstack(
+        [np.repeat(np.arange(3), len(t_range)), np.tile(t_range, 3)]
+    ).T
+    p_response = np.sum(np.exp(trdm.log_prob(value=choice_RTs)) * dt)
+    p_nonresponse = np.exp(trdm.log_prob(value=np.array([-1, deadline])))
+
+    assert np.isclose(p_response + p_nonresponse, 1, atol=0.01)
