@@ -136,6 +136,7 @@ class TRDM(DiscreteChoiceRT):
         sigma_timer (array_like, optional): timer diffusion coefficient. Defaults to None.
     """
 
+    pytree_aux_fields = ("timer",)
     arg_constraints = {
         "v": constraints.positive,
         "alpha": constraints.positive,
