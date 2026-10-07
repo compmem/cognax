@@ -74,3 +74,22 @@ def test_trdm_integrate_to_one(timer_args):
     integral = np.sum(probs * dt)
 
     assert np.isclose(integral, 1, atol=0.01)
+
+
+@pytest.mark.parametrize("v, alpha, sigma", [(0.5, 1.0, 1.0), (3.0, 1.0, 0.5)])
+def test_trdm_inverse_gaussian_matches_scipy(v, alpha, sigma):
+    """first passage log density / log survival agree with scipy, including far tails"""
+    from scipy.stats import invgauss
+
+    from cognax.decisions.trdm import cum_log_p_not_choice, log_p_choice
+
+    mu, lam = alpha / v, alpha**2 / sigma**2
+    ref = invgauss(mu / lam, scale=lam)
+    x = np.array([0.01, 0.1, 0.5, 1.0, 2.0, 10.0, 50.0, 200.0, 1000.0])
+
+    np.testing.assert_allclose(
+        log_p_choice(x, v, sigma, alpha), ref.logpdf(x), rtol=1e-6, atol=1e-10
+    )
+    np.testing.assert_allclose(
+        cum_log_p_not_choice(x, v, sigma, alpha), ref.logsf(x), rtol=1e-6, atol=1e-10
+    )
