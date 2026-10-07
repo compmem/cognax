@@ -102,6 +102,8 @@ def trdm_log_dens(
         log_dens_timer = (
             log_p_choice_at_timer + log_p_timer_activated + cum_log_p_none_active
         )
+        # timer activation forces a response, so it can't produce a nonresponse
+        log_dens_timer = jnp.where(nonresponse, -jnp.inf, log_dens_timer)
 
         return jnp.logaddexp(log_dens_choice, log_dens_timer)
     else:
