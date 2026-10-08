@@ -5,46 +5,54 @@ from jax import lax
 
 from numpyro.distributions import constraints
 from numpyro.distributions.util import promote_shapes, validate_sample
+from jax.scipy.special import log_ndtr
 
 from cognax.decisions.discrete_choice_rt import DiscreteChoiceRT
 from cognax.util import vmap_n
-
-
-_TRDM_DISABLED_MESSAGE = (
-    "TRDM is temporarily disabled because it depends on TensorFlow Probability's "
-    "JAX substrate, which is not currently compatible with the development "
-    "environment."
-)
 
 
 def log_p_choice(x, v, sigma, alpha):
     """
     log probability that a choice with params (v, sigma, alpha) was selected at exactly t=x.
 
+    This is the Wald (first-passage) density, valid for any real v:
+
+        f(x) = alpha / (sigma * sqrt(2 pi x^3)) * exp(-(alpha - v x)^2 / (2 sigma^2 x))
+
     Args:
         x: RTs. (0, inf)
         v: drift rate
         sigma: diffusion coefficient
         alpha: decision threshold
     """
-    # return tfd.InverseGaussian(alpha / v, alpha**2 / sigma**2).log_prob(x)
-    raise NotImplementedError(_TRDM_DISABLED_MESSAGE)
+    log_scale = jnp.log(alpha / (sigma * jnp.sqrt(2 * jnp.pi * x**3)))
+    return log_scale - (alpha - v * x) ** 2 / (2 * sigma**2 * x)
 
 
 def cum_log_p_not_choice(x, v, sigma, alpha):
     """
     log probability that a choice with params (v, sigma, alpha) was *not* selected from t=0 to t=x.
 
+    This is the Wald survival function, valid for any real v:
+
+        S(x) = Phi((alpha - v x) / (sigma sqrt(x)))
+               - exp(2 v alpha / sigma^2) * Phi(-(alpha + v x) / (sigma sqrt(x)))
+
+    For v <= 0, S stays above 0 as x -> inf: the choice may never be selected.
+
     Args:
         x: RTs. (0, inf)
         v: drift rate
         sigma: diffusion coefficient
         alpha: decision threshold
     """
-    # return jnp.log(
-    #     1 - tfd.InverseGaussian(alpha / v, alpha**2 / sigma**2).cdf(x)
-    # )  # XXX guard in case this is 0?
-    raise NotImplementedError(_TRDM_DISABLED_MESSAGE)
+    log_phi_a = log_ndtr((alpha - v * x) / (sigma * jnp.sqrt(x)))
+    log_phi_b = log_ndtr(-(alpha + v * x) / (sigma * jnp.sqrt(x)))
+
+    # S in log space, so it doesn't underflow to log(0) in the right tail
+    return log_phi_a + jnp.log(
+        -jnp.expm1(2 * v * alpha / sigma**2 + log_phi_b - log_phi_a)
+    )
 
 
 def trdm_log_dens(
@@ -103,6 +111,8 @@ def trdm_log_dens(
         log_dens_timer = (
             log_p_choice_at_timer + log_p_timer_activated + cum_log_p_none_active
         )
+        # timer activation forces a response, so it can't produce a nonresponse
+        log_dens_timer = jnp.where(nonresponse, -jnp.inf, log_dens_timer)
 
         return jnp.logaddexp(log_dens_choice, log_dens_timer)
     else:
@@ -121,7 +131,11 @@ class TRDM(DiscreteChoiceRT):
     event dimension should contain choice indeces in {0, ..., n}, and the second event dimension
     should contain the response-time for that choice.
 
-    This distribution *does* handle nonresponse. Nonresponse choices should be coded as `-1`.
+    This distribution *does* handle nonresponse. Nonresponse choices should be coded as `-1`,
+    with the response deadline as their RT.
+
+    Drift rates may be any real number. An accumulator with `v <= 0` may never reach
+    its threshold; without a timer, if no accumulator finishes, it's a nonresponse.
 
     **References:**
 
@@ -135,10 +149,14 @@ class TRDM(DiscreteChoiceRT):
         v_timer (array_like, optional): timer drift rate. Defaults to None.
         alpha_timer (array_like, optional): timer boundary. Defaults to None.
         sigma_timer (array_like, optional): timer diffusion coefficient. Defaults to None.
+        deadline (float, optional): response deadline (absolute, from stimulus onset).
+            `sample` returns `(-1, deadline)` for nonresponses. Defaults to 5.0.
     """
 
+    pytree_aux_fields = ("timer",)
+    has_nonresponse = True
     arg_constraints = {
-        "v": constraints.positive,
+        "v": constraints.real,
         "alpha": constraints.positive,
         "sigma": constraints.positive,
         "t0": constraints.nonnegative,
@@ -194,16 +212,15 @@ class TRDM(DiscreteChoiceRT):
         alpha_timer=None,
         sigma_timer=None,
         dt=0.01,
-        rel_max_time=5.0,
+        deadline=5.0,
         validate_args=None,
     ):
-        raise NotImplementedError(_TRDM_DISABLED_MESSAGE)
-
         timer_params = (v_timer, alpha_timer, sigma_timer)
 
         if all([param is None for param in timer_params]):
             self.timer = False
-            v_timer, alpha_timer, sigma_timer = jnp.nan, jnp.nan, jnp.nan
+            # unused placeholders, valid so they pass numpyro arg validation
+            v_timer, alpha_timer, sigma_timer = 1.0, 1.0, 1.0
         elif all([param is not None for param in timer_params]):
             self.timer = True
         else:
@@ -213,9 +230,9 @@ class TRDM(DiscreteChoiceRT):
             )
         n_choice = v.shape[-1]
 
-        assert all(param.shape[-1] == n_choice for param in (v, alpha, sigma)), (
-            "All choice params must have consistent rightmost (choice) dimension"
-        )
+        assert all(
+            param.shape[-1] == n_choice for param in (v, alpha, sigma)
+        ), "All choice params must have consistent rightmost (choice) dimension"
 
         (self.v, self.alpha, self.sigma, t0, v_timer, alpha_timer, sigma_timer) = (
             promote_shapes(v, alpha, sigma, t0, v_timer, alpha_timer, sigma_timer)
@@ -240,7 +257,7 @@ class TRDM(DiscreteChoiceRT):
         super(TRDM, self).__init__(
             n_choice=n_choice,
             dt=dt,
-            rel_max_time=rel_max_time,
+            deadline=deadline,
             batch_shape=batch_shape,
             validate_args=validate_args,
         )

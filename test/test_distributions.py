@@ -270,7 +270,7 @@ def test_distribution_constraints(jax_dist, params, prepend_shape):
         valid_params[i] = gen_values_within_bounds(
             constraint, jnp.shape(params[i]), key_gen
         )
-    assert jax_dist(*oob_params)
+    assert jax_dist(*oob_params, validate_args=False)
 
     # Invalid parameter values throw ValueError
     if not dependent_constraint:

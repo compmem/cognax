@@ -5,7 +5,7 @@ build-backend = "flit_core.buildapi"
 [project]
 name = "cognax"
 
-# This is set automatically by flit using `penzai.__version__`
+# This is set automatically by flit using `cognax.__version__`
 dynamic = ["version"]
 description = "Build, fit, and sample from cognitive models with JAX + NumPyro."
 readme = "README.md"
@@ -14,11 +14,15 @@ license = { file = "LICENSE" }
 authors = [{ name = "Ami Falk", email = "aaf2pz@virginia.edu" }]
 keywords = ["cognitive-science", "modeling-tools", "jax", "numpyro"]
 urls = { repository = "https://github.com/compmem/cognax/" }
-dependencies = ["numpyro >= 0.21", "numpy"]
-# pandas is a dependency for df_util.py
+dependencies = [
+    "jax >= 0.11",
+    "numpyro >= 0.22",
+    "numpy",
+    "pandas",  # df_util.py
+]
 
 [project.optional-dependencies]
 examples = ["arviz", "jupyter", "matplotlib"]
 
 [dependency-groups]
-dev = ["pytest", "ruff"]
+dev = ["pytest", "ruff", "scipy"]
