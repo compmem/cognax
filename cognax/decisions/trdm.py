@@ -15,35 +15,44 @@ def log_p_choice(x, v, sigma, alpha):
     """
     log probability that a choice with params (v, sigma, alpha) was selected at exactly t=x.
 
+    This is the Wald (first-passage) density, valid for any real v:
+
+        f(x) = alpha / (sigma * sqrt(2 pi x^3)) * exp(-(alpha - v x)^2 / (2 sigma^2 x))
+
     Args:
         x: RTs. (0, inf)
         v: drift rate
         sigma: diffusion coefficient
         alpha: decision threshold
     """
-    mu, lam = alpha / v, alpha**2 / sigma**2
-    return 0.5 * jnp.log(lam / (2 * jnp.pi * x**3)) - lam * (x - mu) ** 2 / (
-        2 * mu**2 * x
-    )
+    log_scale = jnp.log(alpha / (sigma * jnp.sqrt(2 * jnp.pi * x**3)))
+    return log_scale - (alpha - v * x) ** 2 / (2 * sigma**2 * x)
 
 
 def cum_log_p_not_choice(x, v, sigma, alpha):
     """
     log probability that a choice with params (v, sigma, alpha) was *not* selected from t=0 to t=x.
 
+    This is the Wald survival function, valid for any real v:
+
+        S(x) = Phi((alpha - v x) / (sigma sqrt(x)))
+               - exp(2 v alpha / sigma^2) * Phi(-(alpha + v x) / (sigma sqrt(x)))
+
+    For v <= 0, S stays above 0 as x -> inf: the choice may never be selected.
+
     Args:
         x: RTs. (0, inf)
         v: drift rate
         sigma: diffusion coefficient
         alpha: decision threshold
     """
-    mu, lam = alpha / v, alpha**2 / sigma**2
-    log_sf_a = log_ndtr(-jnp.sqrt(lam / x) * (x / mu - 1))
-    log_sf_b = log_ndtr(-jnp.sqrt(lam / x) * (x / mu + 1))
+    log_phi_a = log_ndtr((alpha - v * x) / (sigma * jnp.sqrt(x)))
+    log_phi_b = log_ndtr(-(alpha + v * x) / (sigma * jnp.sqrt(x)))
 
-    # inverse gaussian survival, Phi(-a) - exp(2 lam / mu) Phi(-b), in log space
-    # so it doesn't underflow to log(0) in the right tail
-    return log_sf_a + jnp.log(-jnp.expm1(2 * lam / mu + log_sf_b - log_sf_a))
+    # S in log space, so it doesn't underflow to log(0) in the right tail
+    return log_phi_a + jnp.log(
+        -jnp.expm1(2 * v * alpha / sigma**2 + log_phi_b - log_phi_a)
+    )
 
 
 def trdm_log_dens(
@@ -125,6 +134,9 @@ class TRDM(DiscreteChoiceRT):
     This distribution *does* handle nonresponse. Nonresponse choices should be coded as `-1`,
     with the response deadline as their RT.
 
+    Drift rates may be any real number. An accumulator with `v <= 0` may never reach
+    its threshold; without a timer, if no accumulator finishes, it's a nonresponse.
+
     **References:**
 
     1. https://psycnet.apa.org/record/2021-17581-001
@@ -144,7 +156,7 @@ class TRDM(DiscreteChoiceRT):
     pytree_aux_fields = ("timer",)
     has_nonresponse = True
     arg_constraints = {
-        "v": constraints.positive,
+        "v": constraints.real,
         "alpha": constraints.positive,
         "sigma": constraints.positive,
         "t0": constraints.nonnegative,
