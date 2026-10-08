@@ -122,7 +122,8 @@ class TRDM(DiscreteChoiceRT):
     event dimension should contain choice indeces in {0, ..., n}, and the second event dimension
     should contain the response-time for that choice.
 
-    This distribution *does* handle nonresponse. Nonresponse choices should be coded as `-1`.
+    This distribution *does* handle nonresponse. Nonresponse choices should be coded as `-1`,
+    with the response deadline as their RT.
 
     **References:**
 
@@ -136,9 +137,12 @@ class TRDM(DiscreteChoiceRT):
         v_timer (array_like, optional): timer drift rate. Defaults to None.
         alpha_timer (array_like, optional): timer boundary. Defaults to None.
         sigma_timer (array_like, optional): timer diffusion coefficient. Defaults to None.
+        deadline (float, optional): response deadline (absolute, from stimulus onset).
+            `sample` returns `(-1, deadline)` for nonresponses. Defaults to 5.0.
     """
 
     pytree_aux_fields = ("timer",)
+    has_nonresponse = True
     arg_constraints = {
         "v": constraints.positive,
         "alpha": constraints.positive,
@@ -196,7 +200,7 @@ class TRDM(DiscreteChoiceRT):
         alpha_timer=None,
         sigma_timer=None,
         dt=0.01,
-        rel_max_time=5.0,
+        deadline=5.0,
         validate_args=None,
     ):
         timer_params = (v_timer, alpha_timer, sigma_timer)
@@ -241,7 +245,7 @@ class TRDM(DiscreteChoiceRT):
         super(TRDM, self).__init__(
             n_choice=n_choice,
             dt=dt,
-            rel_max_time=rel_max_time,
+            deadline=deadline,
             batch_shape=batch_shape,
             validate_args=validate_args,
         )

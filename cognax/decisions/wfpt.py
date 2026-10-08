@@ -150,7 +150,7 @@ class WFPT(DiscreteChoiceRT):
             (v * self.a * w) + 0.5 * jnp.square(v) * (RTs - self.t0) + jnp.log(self.a**2)
         )
 
-    def __init__(self, v, a, w, t0, dt=0.01, rel_max_time=5.0, *, validate_args=None):
+    def __init__(self, v, a, w, t0, dt=0.01, deadline=5.0, *, validate_args=None):
         self.v, self.a, self.w, self.t0 = promote_shapes(v, a, w, t0)
         batch_shape = lax.broadcast_shapes(
             jnp.shape(v), jnp.shape(a), jnp.shape(w), jnp.shape(t0)
@@ -158,7 +158,7 @@ class WFPT(DiscreteChoiceRT):
         super(WFPT, self).__init__(
             n_choice=2,
             dt=dt,
-            rel_max_time=rel_max_time,
+            deadline=deadline,
             batch_shape=batch_shape,
             validate_args=validate_args,
         )
@@ -212,7 +212,7 @@ class WFPTNormalDrift(DiscreteChoiceRT):
         )
 
     def __init__(
-        self, v_loc, v_scale, a, w, t0, dt=0.01, rel_max_time=5.0, *, validate_args=None
+        self, v_loc, v_scale, a, w, t0, dt=0.01, deadline=5.0, *, validate_args=None
     ):
         self.v_loc, self.v_scale, self.a, self.w, self.t0 = promote_shapes(
             v_loc, v_scale, a, w, t0
@@ -227,7 +227,7 @@ class WFPTNormalDrift(DiscreteChoiceRT):
         super(WFPTNormalDrift, self).__init__(
             n_choice=2,
             dt=dt,
-            rel_max_time=rel_max_time,
+            deadline=deadline,
             batch_shape=batch_shape,
             validate_args=validate_args,
         )
