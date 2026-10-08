@@ -20,5 +20,16 @@ You can install the latest development version of Cognax directly from GitHub us
 pip install git+https://github.com/compmem/cognax
 ```
 
-> [!NOTE] 
-> JAX is not listed as a dependency, but it must be installed separately before using Cognax. See the [JAX Docs](https://jax.readthedocs.io/en/latest/installation.html) for more information.
+## Development
+
+Cognax uses [uv](https://docs.astral.sh/uv/) for local development. To create a development environment and install the project with its development dependencies, run:
+
+```bash
+uv sync
+```
+
+Run tests through uv:
+
+```bash
+uv run pytest
+```

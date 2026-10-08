@@ -1,19 +1,19 @@
 [build-system]
-requires = ["setuptools"]
-build-backend = "setuptools.build_meta"
+requires = ["flit_core>=3.12,<4"]
+build-backend = "flit_core.buildapi"
 
 [project]
 name = "cognax"
-version = "0.0.1"
+
+# This is set automatically by flit using `cognax.__version__`
+dynamic = ["version"]
 description = "Build, fit, and sample from cognitive models with JAX + NumPyro."
 readme = "README.md"
 requires-python = ">=3.12"
-license = {file = "LICENSE"}
-authors = [
-    {name = "Ami Falk", email="aaf2pz@virginia.edu"},
-]
+license = { file = "LICENSE" }
+authors = [{ name = "Ami Falk", email = "aaf2pz@virginia.edu" }]
 keywords = ["cognitive-science", "modeling-tools", "jax", "numpyro"]
-urls = {repository = "https://github.com/compmem/cognax/"}
+urls = { repository = "https://github.com/compmem/cognax/" }
 dependencies = [
     "jax >= 0.11",
     "numpyro >= 0.22",
@@ -23,4 +23,6 @@ dependencies = [
 
 [project.optional-dependencies]
 examples = ["arviz", "jupyter", "matplotlib"]
-test = ["pytest", "scipy"]
+
+[dependency-groups]
+dev = ["pytest", "ruff", "scipy"]
