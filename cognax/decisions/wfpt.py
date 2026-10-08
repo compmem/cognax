@@ -207,6 +207,9 @@ class WFPTNormalDrift(DiscreteChoiceRT):
 
     v ~ Normal(v_loc, v_scale)
 
+    This distribution does *not* handle nonresponse. To exclude missing observations
+    from the likelihood, use `WFPTNormalDrift(...).mask`.
+
     Args:
         v_loc (array_like): mean drift rate
         v_scale (array_like): drift rate standard deviation
