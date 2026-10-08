@@ -1,5 +1,6 @@
 import jax.numpy as jnp
 from jax import lax
+from jax.scipy.special import logsumexp
 
 from numpyro.distributions import constraints
 from numpyro.distributions.util import promote_shapes, validate_sample
@@ -101,6 +102,33 @@ def fnorm(x, w):
     return jnp.where(x > 0, densities, 0.0)
 
 
+def log_survival(t, v, a, w):
+    """
+    log probability that neither boundary has been hit by time `t`, from integrating
+    the large-time (slow-RT) series of both boundary densities term by term.
+
+    Args:
+        t: decision time (RT - t0). (0, inf).
+        v: drift rate (towards the upper boundary)
+        a: upper absorption boundary
+        w: relative starting point. (0, 1).
+    """
+    K = 50  # number of terms; enough for t / a**2 down to ~0.005
+
+    k = jnp.arange(1, K + 1)
+    t, v, a, w = [jnp.expand_dims(x, -1) for x in (t, v, a, w)]
+    lam = 0.5 * v**2 + 0.5 * (k * jnp.pi / a) ** 2
+    log_c = jnp.log(jnp.pi * k / (a**2 * lam)) - lam * t
+    sin = jnp.sin(k * jnp.pi * w)
+
+    # lower boundary + upper boundary (v -> -v, w -> 1 - w), terms of mixed sign
+    return logsumexp(
+        jnp.concatenate([log_c - v * a * w, log_c + v * a * (1 - w)], -1),
+        b=jnp.concatenate([sin, sin * (-1.0) ** (k + 1)], -1),
+        axis=-1,
+    )
+
+
 class WFPT(DiscreteChoiceRT):
     """
     Weiner First Passage Time with the Navarro-Fuss parameterization:
@@ -113,8 +141,8 @@ class WFPT(DiscreteChoiceRT):
     event dimension should contain choice indeces in {0, 1}, and the second event dimension
     should contain the response-time for that choice.
 
-    This distribution does *not* handle nonresponse. To exclude missing observations
-    from the likelihood, use `WFPT(...).mask`.
+    This distribution *does* handle nonresponse. Nonresponse choices should be coded
+    as `-1`, with the response deadline as their RT.
 
     **References:**
 
@@ -126,8 +154,11 @@ class WFPT(DiscreteChoiceRT):
         a (array_like): upper absorption boundary
         w (array_like): relative starting point
         t0 (array_like): nondecision time
+        deadline (float, optional): response deadline (absolute, from stimulus onset).
+            `sample` returns `(-1, deadline)` for nonresponses. Defaults to 5.0.
     """
 
+    has_nonresponse = True
     arg_constraints = {
         "v": constraints.real,
         "a": constraints.positive,
@@ -146,8 +177,14 @@ class WFPT(DiscreteChoiceRT):
         RTs, w = jnp.broadcast_arrays(RTs, w)
         p = vmap_n(fnorm, n_times=RTs.ndim, x=(RTs - self.t0) / self.a**2, w=w)
 
-        return jnp.log(p) - (
-            (v * self.a * w) + 0.5 * jnp.square(v) * (RTs - self.t0) + jnp.log(self.a**2)
+        log_p = jnp.log(p) - (
+            (v * self.a * w)
+            + 0.5 * jnp.square(v) * (RTs - self.t0)
+            + jnp.log(self.a**2)
+        )
+
+        return jnp.where(
+            choices == -1, log_survival(RTs - self.t0, self.v, self.a, self.w), log_p
         )
 
     def __init__(self, v, a, w, t0, dt=0.01, deadline=5.0, *, validate_args=None):
