@@ -1,3 +1,5 @@
+import jax
+import jax.numpy as jnp
 import jax.random as random
 
 import numpy as np
@@ -258,3 +260,51 @@ def test_trdm_probs_batched():
         np.testing.assert_allclose(
             probs[i], make_trdm(TIMER_ARGS[0], v=v[i], deadline=1.0).probs
         )
+
+
+def trdm_from_flat(p, timer):
+    timer_args = {"v_timer": p[3], "alpha_timer": 0.4, "sigma_timer": 0.3}
+    return TRDM(
+        v=jnp.stack([p[0], 0.5, 0.5]),
+        alpha=jnp.full((3,), p[1]),
+        sigma=jnp.ones(3),
+        t0=p[2],
+        deadline=1.0,
+        **(timer_args if timer else TIMER_ARGS[0]),
+    )
+
+
+@pytest.mark.parametrize(
+    "make_dist, params, choices",
+    [
+        (lambda p: WFPT(*p, deadline=1.0), [0.5, 1.5, 0.4, 0.25], [0, 1, -1]),
+        # w = 0.5: even-k survival terms have zero weight in logsumexp
+        (lambda p: WFPT(*p, deadline=1.0), [0.5, 1.5, 0.5, 0.25], [0, 1, -1]),
+        (lambda p: trdm_from_flat(p, timer=False), [0.8, 1.0, 0.14], [0, 2, -1]),
+        (lambda p: trdm_from_flat(p, timer=True), [0.8, 1.0, 0.14, 0.2], [0, 2, -1]),
+    ],
+    ids=["wfpt", "wfpt_w_half", "trdm", "trdm_timer"],
+)
+def test_log_prob_grads_match_finite_differences(make_dist, params, choices):
+    """gradients of log_prob are finite and correct for responses and nonresponses,
+    i.e. the unused branch of the nonresponse `jnp.where` doesn't leak NaNs"""
+    params = jnp.array(params)
+    x = jnp.array(
+        [[c, 1.0 if c == -1 else 0.6 + 0.1 * i] for i, c in enumerate(choices)]
+    )
+
+    def log_p(p):
+        return make_dist(p).log_prob(x)
+
+    grads = jax.jacrev(log_p)(params)
+    eps = 1e-6
+    finite_diffs = jnp.stack(
+        [
+            (log_p(params.at[i].add(eps)) - log_p(params.at[i].add(-eps))) / (2 * eps)
+            for i in range(len(params))
+        ],
+        -1,
+    )
+
+    assert np.all(np.isfinite(grads))
+    np.testing.assert_allclose(grads, finite_diffs, rtol=1e-5, atol=1e-7)
