@@ -1,3 +1,5 @@
+import jax
+import jax.numpy as jnp
 import jax.random as random
 
 import numpy as np
@@ -96,35 +98,6 @@ def test_trdm_inverse_gaussian_matches_scipy(v, alpha, sigma):
     )
 
 
-@pytest.mark.parametrize(
-    "timer_args",
-    [
-        {"v_timer": None, "alpha_timer": None, "sigma_timer": None},
-        {"v_timer": 0.2, "alpha_timer": 0.4, "sigma_timer": 0.3},
-    ],
-)
-def test_trdm_nonresponse_completes_probability(timer_args):
-    """P(response before deadline) + P(nonresponse at deadline) = 1"""
-    dt, t0, deadline = 0.0001, 0.14, 1.0
-
-    trdm = TRDM(
-        v=np.full((3,), 0.5),
-        alpha=np.full((3,), 1.0),
-        sigma=np.full((3,), 1.0),
-        t0=np.array(t0),
-        **timer_args,
-    )
-
-    t_range = np.arange(t0 + dt, deadline, dt)
-    choice_RTs = np.vstack(
-        [np.repeat(np.arange(3), len(t_range)), np.tile(t_range, 3)]
-    ).T
-    p_response = np.sum(np.exp(trdm.log_prob(value=choice_RTs)) * dt)
-    p_nonresponse = np.exp(trdm.log_prob(value=np.array([-1, deadline])))
-
-    assert np.isclose(p_response + p_nonresponse, 1, atol=0.01)
-
-
 TIMER_ARGS = [
     {"v_timer": None, "alpha_timer": None, "sigma_timer": None},
     {"v_timer": 0.2, "alpha_timer": 0.4, "sigma_timer": 0.3},
@@ -145,68 +118,108 @@ def make_trdm(timer_args, v=V, **kwargs):
     )
 
 
-@pytest.mark.parametrize("timer_args", TIMER_ARGS)
-def test_trdm_samples_within_deadline(timer_args):
+# (dist with nonresponse and deadline = 1.0, t0, choices)
+NONRESPONSE_DISTS = [
+    *[
+        (make_trdm(timer_args, dt=0.001, deadline=1.0), 0.14, [0, 1, 2])
+        for timer_args in TIMER_ARGS
+    ],
+    (WFPT(v=0.5, a=1.5, w=0.5, t0=0.25, dt=0.001, deadline=1.0), 0.25, [0, 1]),
+]
+
+
+@pytest.mark.parametrize("dist, t0, choices", NONRESPONSE_DISTS)
+def test_samples_within_deadline(dist, t0, choices):
     deadline = 1.0
-    samples = make_trdm(timer_args, deadline=deadline).sample(
-        random.PRNGKey(0), (5000,)
-    )
-    choices, RTs = samples[:, 0], samples[:, 1]
-    responded = choices != -1
+    samples = dist.sample(random.PRNGKey(0), (5000,))
+    sampled_choices, RTs = samples[:, 0], samples[:, 1]
+    responded = sampled_choices != -1
 
     assert np.any(~responded)
-    assert np.all(np.isin(choices, [-1, 0, 1, 2]))
-    assert np.all((RTs[responded] > 0.14) & (RTs[responded] <= deadline))
+    assert np.all(np.isin(sampled_choices, [-1, *choices]))
+    assert np.all((RTs[responded] > t0) & (RTs[responded] <= deadline))
     assert np.all(RTs[~responded] == deadline)
 
 
-@pytest.mark.parametrize("timer_args", TIMER_ARGS)
-def test_trdm_probs_and_samples_match_log_prob(timer_args):
+@pytest.mark.parametrize("dist, t0, choices", NONRESPONSE_DISTS)
+def test_probs_and_samples_match_log_prob(dist, t0, choices):
     """probs = (p(choice 0), ..., p(choice n-1), p(nonresponse)), from the integrated
     log_prob, and sampled choice rates match them"""
-    dt, deadline, n = 0.001, 1.0, 20000
-    trdm = make_trdm(timer_args, deadline=deadline, dt=dt)
+    deadline, n = 1.0, 20000
 
     fine_dt = 0.0001
-    t_range = np.arange(0.14 + fine_dt, deadline, fine_dt)
+    t_range = np.arange(t0 + fine_dt, deadline, fine_dt)
     expected = [
         np.sum(
-            np.exp(trdm.log_prob(np.stack([np.full_like(t_range, c), t_range], -1)))
+            np.exp(dist.log_prob(np.stack([np.full_like(t_range, c), t_range], -1)))
             * fine_dt
         )
-        for c in range(3)
-    ] + [np.exp(trdm.log_prob(np.array([-1, deadline])))]
-    np.testing.assert_allclose(trdm.probs, expected, atol=0.005)
+        for c in choices
+    ] + [np.exp(dist.log_prob(np.array([-1, deadline])))]
+    np.testing.assert_allclose(dist.probs, expected, atol=0.005)
 
-    samples = trdm.sample(random.PRNGKey(1), (n,))
-    observed = [np.mean(samples[:, 0] == c) for c in [0, 1, 2, -1]]
+    samples = dist.sample(random.PRNGKey(1), (n,))
+    observed = [np.mean(samples[:, 0] == c) for c in [*choices, -1]]
     np.testing.assert_allclose(
-        observed, trdm.probs, atol=4 * np.sqrt(np.max(trdm.probs) / n)
+        observed, dist.probs, atol=4 * np.sqrt(np.max(dist.probs) / n)
     )
 
 
-def test_wfpt_samples_within_deadline():
-    deadline = 1.0
-    samples = WFPT(v=0.0, a=3.0, w=0.5, t0=0.25, deadline=deadline).sample(
-        random.PRNGKey(0), (5000,)
+@pytest.mark.parametrize(
+    "dist, n_choice, deadline",
+    [
+        *[(make_trdm(timer_args), 3, 1.0) for timer_args in TIMER_ARGS],
+        (WFPT(v=0.5, a=1.0, w=0.5, t0=0.25), 2, 1.5),
+        # asymmetric: catches sign errors per boundary
+        (WFPT(v=1.0, a=1.5, w=0.3, t0=0.2), 2, 2.0),
+        # (deadline - t0) / a**2 small: slow series convergence
+        (WFPT(v=0.3, a=2.0, w=0.6, t0=0.25), 2, 0.35),
+    ],
+    ids=["trdm", "trdm_timer", "wfpt", "wfpt_asymmetric", "wfpt_short_deadline"],
+)
+def test_nonresponse_completes_probability(dist, n_choice, deadline):
+    """P(response before deadline) + P(nonresponse at deadline) = 1"""
+    dt = 0.00001
+
+    t_range = np.arange(dist.t0 + dt, deadline, dt)
+    choice_RTs = np.vstack(
+        [np.repeat(np.arange(n_choice), len(t_range)), np.tile(t_range, n_choice)]
+    ).T
+    p_response = np.sum(np.exp(dist.log_prob(value=choice_RTs)) * dt)
+    p_nonresponse = np.exp(dist.log_prob(value=np.array([-1, deadline])))
+
+    assert np.isclose(p_response + p_nonresponse, 1, atol=5e-4)
+
+
+def test_wfpt_log_survival_finite_in_tail():
+    """fast drift, long deadline: log P(nonresponse) is tiny but finite, and matches
+    the leading (k = 1) term of the large-time series"""
+    v, a, w, deadline = 3.0, 1.0, 0.5, 10.0
+    lam = v**2 / 2 + np.pi**2 / (2 * a**2)
+    leading = (
+        np.log(np.pi / a**2 * np.sin(np.pi * w) / lam)
+        - lam * deadline
+        + np.logaddexp(-v * a * w, v * a * (1 - w))
     )
 
-    assert np.all(np.isin(samples[:, 0], [0, 1]))
-    assert np.all((samples[:, 1] > 0.25) & (samples[:, 1] <= deadline))
+    log_p = WFPT(v=v, a=a, w=w, t0=0.0).log_prob(np.array([-1, deadline]))
+
+    assert np.isclose(log_p, leading, rtol=1e-6)
 
 
 def test_no_tail_mass_on_last_grid_point():
-    """mass beyond the grid isn't dumped on the last grid point as fake responses"""
+    """mass beyond the grid isn't dumped on the last grid point as fake responses
+    (WFPTNormalDrift has no nonresponse, so it renormalizes before the deadline)"""
     n = 20000
-    wfpt = WFPT(v=0.0, a=3.0, w=0.5, t0=0.25)
-    RTs = wfpt.sample(random.PRNGKey(0), (n,))[:, 1]
+    dist = WFPTNormalDrift(v_loc=0.0, v_scale=0.5, a=3.0, w=0.5, t0=0.25)
+    RTs = dist.sample(random.PRNGKey(0), (n,))[:, 1]
 
     # last bin's density mass, renormalized over responses before the 5.0 deadline
     fine_dt = 0.0001
     choice_RTs = get_choice_RTs(n_choice=2, dt=fine_dt, max_RT=5.0)
-    p_before_deadline = np.sum(np.exp(wfpt.log_prob(choice_RTs)) * fine_dt)
+    p_before_deadline = np.sum(np.exp(dist.log_prob(choice_RTs)) * fine_dt)
     p_last = (
-        np.sum(np.exp(wfpt.log_prob(np.array([[0, 5.0], [1, 5.0]])))) * wfpt.dt
+        np.sum(np.exp(dist.log_prob(np.array([[0, 5.0], [1, 5.0]])))) * dist.dt
     ) / p_before_deadline
 
     observed = np.mean(RTs == RTs.max())
@@ -280,3 +293,51 @@ def test_trdm_negative_drift_may_never_finish():
     np.testing.assert_allclose(
         p_nonresponse, 1 - np.exp(2 * v * alpha / sigma**2), rtol=1e-6
     )
+
+
+def trdm_from_flat(p, timer):
+    timer_args = {"v_timer": p[3], "alpha_timer": 0.4, "sigma_timer": 0.3}
+    return TRDM(
+        v=jnp.stack([p[0], 0.5, 0.5]),
+        alpha=jnp.full((3,), p[1]),
+        sigma=jnp.ones(3),
+        t0=p[2],
+        deadline=1.0,
+        **(timer_args if timer else TIMER_ARGS[0]),
+    )
+
+
+@pytest.mark.parametrize(
+    "make_dist, params, choices",
+    [
+        (lambda p: WFPT(*p, deadline=1.0), [0.5, 1.5, 0.4, 0.25], [0, 1, -1]),
+        # w = 0.5: even-k survival terms have zero weight in logsumexp
+        (lambda p: WFPT(*p, deadline=1.0), [0.5, 1.5, 0.5, 0.25], [0, 1, -1]),
+        (lambda p: trdm_from_flat(p, timer=False), [0.8, 1.0, 0.14], [0, 2, -1]),
+        (lambda p: trdm_from_flat(p, timer=True), [0.8, 1.0, 0.14, 0.2], [0, 2, -1]),
+    ],
+    ids=["wfpt", "wfpt_w_half", "trdm", "trdm_timer"],
+)
+def test_log_prob_grads_match_finite_differences(make_dist, params, choices):
+    """gradients of log_prob are finite and correct for responses and nonresponses,
+    i.e. the unused branch of the nonresponse `jnp.where` doesn't leak NaNs"""
+    params = jnp.array(params)
+    x = jnp.array(
+        [[c, 1.0 if c == -1 else 0.6 + 0.1 * i] for i, c in enumerate(choices)]
+    )
+
+    def log_p(p):
+        return make_dist(p).log_prob(x)
+
+    grads = jax.jacrev(log_p)(params)
+    eps = 1e-6
+    finite_diffs = jnp.stack(
+        [
+            (log_p(params.at[i].add(eps)) - log_p(params.at[i].add(-eps))) / (2 * eps)
+            for i in range(len(params))
+        ],
+        -1,
+    )
+
+    assert np.all(np.isfinite(grads))
+    np.testing.assert_allclose(grads, finite_diffs, rtol=1e-5, atol=1e-7)
