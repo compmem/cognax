@@ -5,6 +5,7 @@ import jax.random as random
 import numpy as np
 import numpyro
 import pytest
+import scipy.stats
 from collections import namedtuple
 from cognax.decisions import TRDM, WFPT, WFPTNormalDrift
 
@@ -234,6 +235,64 @@ def test_trdm_probs_batched():
         np.testing.assert_allclose(
             probs[i], make_trdm(TIMER_ARGS[0], v=v[i], deadline=1.0).probs
         )
+
+
+def test_trdm_drift_is_real():
+    """accumulators may drift away from their threshold (v <= 0), so v is unconstrained"""
+    assert np.all(TRDM.arg_constraints["v"](np.array([-1.0, 0.0, 0.5])))
+
+
+def make_single_accumulator_trdm(v, alpha, sigma):
+    return TRDM(
+        v=np.array([v]),
+        alpha=np.array([alpha]),
+        sigma=np.array([sigma]),
+        t0=np.array(0.0),
+        deadline=50.0,
+        validate_args=False,  # test_trdm_drift_is_real covers the constraint
+    )
+
+
+@pytest.mark.parametrize(
+    "v, reference",
+    [
+        # positive drift: first-passage time ~ InverseGaussian(alpha / v, alpha**2 / sigma**2)
+        (
+            0.7,
+            lambda alpha, sigma: scipy.stats.invgauss(
+                mu=(alpha / 0.7) / (alpha / sigma) ** 2, scale=(alpha / sigma) ** 2
+            ),
+        ),
+        # zero drift: first-passage time ~ Levy(0, alpha**2 / sigma**2)
+        (0.0, lambda alpha, sigma: scipy.stats.levy(scale=(alpha / sigma) ** 2)),
+    ],
+    ids=["positive_drift", "zero_drift"],
+)
+def test_trdm_single_accumulator_matches_scipy(v, reference):
+    """with one accumulator and no timer, log_prob of a response is the first-passage
+    log density, and log_prob of a nonresponse is the log survival"""
+    alpha, sigma = 1.2, 0.8
+    t = np.array([0.2, 1.0, 3.0])
+    trdm = make_single_accumulator_trdm(v, alpha, sigma)
+
+    log_dens = trdm.log_prob(np.stack([np.zeros_like(t), t], -1))
+    log_surv = trdm.log_prob(np.stack([np.full_like(t, -1), t], -1))
+
+    np.testing.assert_allclose(log_dens, reference(alpha, sigma).logpdf(t))
+    np.testing.assert_allclose(log_surv, reference(alpha, sigma).logsf(t))
+
+
+def test_trdm_negative_drift_may_never_finish():
+    """with v < 0 the accumulator never reaches alpha with probability
+    1 - exp(2 v alpha / sigma**2), so that much mass is left as nonresponse"""
+    v, alpha, sigma = -0.5, 1.2, 0.8
+    trdm = make_single_accumulator_trdm(v, alpha, sigma)
+
+    p_nonresponse = np.exp(trdm.log_prob(np.array([-1, trdm.deadline])))
+
+    np.testing.assert_allclose(
+        p_nonresponse, 1 - np.exp(2 * v * alpha / sigma**2), rtol=1e-6
+    )
 
 
 def trdm_from_flat(p, timer):
