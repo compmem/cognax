@@ -97,35 +97,6 @@ def test_trdm_inverse_gaussian_matches_scipy(v, alpha, sigma):
     )
 
 
-@pytest.mark.parametrize(
-    "timer_args",
-    [
-        {"v_timer": None, "alpha_timer": None, "sigma_timer": None},
-        {"v_timer": 0.2, "alpha_timer": 0.4, "sigma_timer": 0.3},
-    ],
-)
-def test_trdm_nonresponse_completes_probability(timer_args):
-    """P(response before deadline) + P(nonresponse at deadline) = 1"""
-    dt, t0, deadline = 0.0001, 0.14, 1.0
-
-    trdm = TRDM(
-        v=np.full((3,), 0.5),
-        alpha=np.full((3,), 1.0),
-        sigma=np.full((3,), 1.0),
-        t0=np.array(t0),
-        **timer_args,
-    )
-
-    t_range = np.arange(t0 + dt, deadline, dt)
-    choice_RTs = np.vstack(
-        [np.repeat(np.arange(3), len(t_range)), np.tile(t_range, 3)]
-    ).T
-    p_response = np.sum(np.exp(trdm.log_prob(value=choice_RTs)) * dt)
-    p_nonresponse = np.exp(trdm.log_prob(value=np.array([-1, deadline])))
-
-    assert np.isclose(p_response + p_nonresponse, 1, atol=0.01)
-
-
 TIMER_ARGS = [
     {"v_timer": None, "alpha_timer": None, "sigma_timer": None},
     {"v_timer": 0.2, "alpha_timer": 0.4, "sigma_timer": 0.3},
@@ -194,24 +165,27 @@ def test_probs_and_samples_match_log_prob(dist, t0, choices):
 
 
 @pytest.mark.parametrize(
-    "v, a, w, t0, deadline",
+    "dist, n_choice, deadline",
     [
-        (0.5, 1.0, 0.5, 0.25, 1.5),
-        (1.0, 1.5, 0.3, 0.2, 2.0),  # asymmetric: catches sign errors per boundary
-        (0.3, 2.0, 0.6, 0.25, 0.35),  # (deadline - t0) / a**2 small: slow series
+        *[(make_trdm(timer_args), 3, 1.0) for timer_args in TIMER_ARGS],
+        (WFPT(v=0.5, a=1.0, w=0.5, t0=0.25), 2, 1.5),
+        # asymmetric: catches sign errors per boundary
+        (WFPT(v=1.0, a=1.5, w=0.3, t0=0.2), 2, 2.0),
+        # (deadline - t0) / a**2 small: slow series convergence
+        (WFPT(v=0.3, a=2.0, w=0.6, t0=0.25), 2, 0.35),
     ],
+    ids=["trdm", "trdm_timer", "wfpt", "wfpt_asymmetric", "wfpt_short_deadline"],
 )
-def test_wfpt_nonresponse_completes_probability(v, a, w, t0, deadline):
+def test_nonresponse_completes_probability(dist, n_choice, deadline):
     """P(response before deadline) + P(nonresponse at deadline) = 1"""
     dt = 0.00001
-    wfpt = WFPT(v=v, a=a, w=w, t0=t0)
 
-    t_range = np.arange(t0 + dt, deadline, dt)
+    t_range = np.arange(dist.t0 + dt, deadline, dt)
     choice_RTs = np.vstack(
-        [np.repeat(np.arange(2), len(t_range)), np.tile(t_range, 2)]
+        [np.repeat(np.arange(n_choice), len(t_range)), np.tile(t_range, n_choice)]
     ).T
-    p_response = np.sum(np.exp(wfpt.log_prob(value=choice_RTs)) * dt)
-    p_nonresponse = np.exp(wfpt.log_prob(value=np.array([-1, deadline])))
+    p_response = np.sum(np.exp(dist.log_prob(value=choice_RTs)) * dt)
+    p_nonresponse = np.exp(dist.log_prob(value=np.array([-1, deadline])))
 
     assert np.isclose(p_response + p_nonresponse, 1, atol=5e-4)
 
