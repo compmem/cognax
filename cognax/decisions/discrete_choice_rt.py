@@ -9,12 +9,14 @@ from numpyro.distributions.util import lazy_property
 from cognax.util import vmap_n
 
 
-def all_choice_rts(t0, n_choice, dt=0.01, rel_max_time=5.0):
-    t_range = t0 + jnp.arange(0, rel_max_time + dt, dt)
+def all_choice_rts(n_choice, dt=0.01, deadline=5.0):
+    """absolute (choice, rt) grid ending exactly at the deadline, and its bin width"""
+    n_bins = round(deadline / dt)
+    t_range = jnp.linspace(deadline / n_bins, deadline, n_bins)
 
-    choices = jnp.repeat(jnp.arange(n_choice), repeats=len(t_range))
-    rts = jnp.concatenate([t_range] * n_choice)
-    return jnp.vstack([choices, rts]).T
+    choices = jnp.repeat(jnp.arange(n_choice), repeats=n_bins)
+    rts = jnp.tile(t_range, n_choice)
+    return jnp.stack([choices, rts], axis=-1), deadline / n_bins
 
 
 def icdf_sample(key, vals, probs, sample_shape=()):
@@ -58,90 +60,85 @@ class DiscreteChoiceRT(Distribution):
     """
 
     support = _DiscreteChoiceRTConstraint()
-    pytree_aux_fields = ("n_choice", "dt", "rel_max_time")
+    pytree_aux_fields = ("n_choice", "dt", "deadline")
+    # whether log_prob scores (-1, deadline) as a nonresponse
+    has_nonresponse = False
 
     def __init__(
-        self, n_choice, dt=0.01, rel_max_time=5.0, batch_shape=(), *, validate_args=None
+        self,
+        n_choice,
+        dt=0.01,
+        deadline=5.0,
+        batch_shape=(),
+        *,
+        validate_args=None,
     ):
         self.n_choice = n_choice
         self.dt = dt
-        self.rel_max_time = rel_max_time
+        self.deadline = deadline
 
         super().__init__(
             batch_shape=batch_shape, event_shape=(2,), validate_args=validate_args
         )
 
     @lazy_property
-    def probs(self):
+    def _grid(self):
         """
-        The probability of selecting each choice index. By default, we compute this
-        by marginalizing the rt distribution at each choice (discretizing continous time).
-
-        XXX: We don't include the probability of a non-response by default.
+        `(choice_rts, probs)`: the discretized (choice, rt) grid up to `deadline` (plus
+        `(-1, deadline)` if the distribution handles nonresponse), and the probability
+        of each grid point, shape `(*batch_shape, n_grid)`. Bins before t0 get 0
+        probability. Without nonresponse, probabilities are renormalized over responses
+        before the deadline.
         """
         n_batch_dims = len(self.batch_shape)
+        choice_rts, bin_width = all_choice_rts(self.n_choice, self.dt, self.deadline)
+        n_response_bins = choice_rts.shape[0]
+        if self.has_nonresponse:
+            choice_rts = jnp.concatenate([choice_rts, jnp.array([[-1, self.deadline]])])
 
-        get_all_choice_rts = partial(
-            all_choice_rts,
-            n_choice=self.n_choice,
-            dt=self.dt,
-            rel_max_time=self.rel_max_time,
+        # (n_grid, *batch_shape)
+        probs = jnp.exp(self.log_prob(choice_rts.reshape(-1, *[1] * n_batch_dims, 2)))
+        # response bins are densities; the nonresponse bin is already a probability
+        probs = probs.at[:n_response_bins].multiply(bin_width)
+        # reshape (n_grid, *batch_shape) to (*batch_shape, n_grid)
+        probs = jnp.moveaxis(probs, 0, -1)
+        return choice_rts, probs / probs.sum(-1, keepdims=True)
+
+    @lazy_property
+    def probs(self):
+        """
+        The probability of each choice index, `(*batch_shape, n_choice)`, computed by
+        marginalizing the rt distribution up to `deadline`. If the distribution handles
+        nonresponse, the last column is the nonresponse probability
+        (`(*batch_shape, n_choice + 1)`).
+        """
+        _, probs = self._grid
+        n_response_bins = self.n_choice * round(self.deadline / self.dt)
+        choice_probs = (
+            probs[..., :n_response_bins]
+            .reshape(*self.batch_shape, self.n_choice, -1)
+            .sum(-1)
         )
-        choice_rts = vmap_n(
-            get_all_choice_rts,
-            n_times=n_batch_dims,
-            t0=jnp.broadcast_to(self.t0, self.batch_shape),
-        )
-
-        probs_each_dt = (
-            jnp.exp(self.log_prob(jnp.moveaxis(choice_rts, -2, 0))) * self.dt
-        )
-        probs_each_dt = jnp.moveaxis(probs_each_dt, 0, -1)
-
-        probs = jnp.zeros((*self.batch_shape, self.n_choice))
-
-        for choice in range(self.n_choice):
-            active_probs = jnp.where(choice_rts[..., 0] == choice, probs_each_dt, 0.0)
-            probs = probs.at[..., choice].set(jnp.sum(active_probs, axis=-1))
-
-        return probs / jnp.sum(probs, axis=-1)
+        return jnp.concatenate([choice_probs, probs[..., n_response_bins:]], -1)
 
     def sample(self, key, sample_shape=()):
         """
         The default sampler uses approximate inverse-transform sampling by discretizing
-        continuous time into discrete chunks. The approximation error can be reduced by
-        decreasing `dt` and increasing `rel_max_time` at the expense of increased memory usage.
-
-        XXX: We don't sample any non-response
+        continuous time into discrete chunks (see `_grid`). The approximation error can
+        be reduced by decreasing `dt` at the expense of increased memory usage. If the
+        distribution handles nonresponse, `(-1, deadline)` is sampled for nonresponses.
 
         Args:
             key: jax.random.PRNGKey
             sample_shape (tuple, optional):
-            dt (float, optional): step size to discretize continuous time with. Defaults to .01.
-            rel_max_time (float, optional): Amount of time after nondecision time
-                to compute probabilities for. Defaults to 5.0.
         """
-
         n_batch_dims = len(self.batch_shape)
-
-        get_all_choice_rts = partial(
-            all_choice_rts,
-            n_choice=self.n_choice,
-            dt=self.dt,
-            rel_max_time=self.rel_max_time,
-        )
         icdf_sampler = partial(icdf_sample, sample_shape=sample_shape)
 
-        choice_rts = vmap_n(
-            get_all_choice_rts,
-            n_times=n_batch_dims,
-            t0=jnp.broadcast_to(self.t0, self.batch_shape),
+        choice_rts, probs = self._grid
+        choice_rts = jnp.broadcast_to(
+            choice_rts, (*self.batch_shape, *choice_rts.shape)
         )
-
-        # reshape (*batch_shape, sample_bins, 2) to (sample_bins, *batch_shape, 2)
-        probs = jnp.exp(self.log_prob(jnp.moveaxis(choice_rts, -2, 0))) * self.dt
-        # reshape (sample_bins, *batch_shape) to (*batch_shape, sample_bins)
-        probs = jnp.moveaxis(probs, 0, -1)
 
         samps = vmap_n(
             icdf_sampler,
