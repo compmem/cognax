@@ -25,8 +25,8 @@ DISTS = [
 
 
 def get_choice_RTs(n_choice, dt, max_RT):
-    """choice_RTs with RTs from 0 -> max_RTs for each choice"""
-    t_range = np.arange(0, max_RT + dt, dt)
+    """choice_RTs with RTs from dt -> max_RT for each choice (RT = 0 is out of support)"""
+    t_range = np.arange(dt, max_RT + dt, dt)
     choices = np.repeat(np.arange(n_choice), repeats=len(t_range))
     RTs = np.concatenate([t_range] * n_choice)
     choice_RTs = np.vstack([choices, RTs]).T
@@ -52,6 +52,35 @@ def test_wfpt_integrate_to_one():
     integral = np.sum(probs * dt)
 
     assert np.isclose(integral, 1, atol=0.01)
+
+
+@pytest.mark.parametrize(
+    "v_loc, v_scale, t0",
+    [(1.0, 0.5, 0.0), (1.0, 0.5, 0.5), (2.0, 1.0, 0.8), (-1.0, 1.5, 0.8)],
+)
+def test_wfpt_normal_drift_integrate_to_one(v_loc, v_scale, t0):
+    dt = 0.0001
+    choice_RTs = get_choice_RTs(n_choice=2, dt=dt, max_RT=30)
+
+    wfpt = WFPTNormalDrift(v_loc=v_loc, v_scale=v_scale, a=1.5, w=0.5, t0=t0)
+
+    probs = np.exp(wfpt.log_prob(value=choice_RTs))
+    integral = np.sum(probs * dt)
+
+    assert np.isclose(integral, 1, atol=0.01)
+
+
+@pytest.mark.parametrize("t0", [0.0, 0.5])
+def test_wfpt_normal_drift_matches_wfpt_as_v_scale_vanishes(t0):
+    choice_RTs = get_choice_RTs(n_choice=2, dt=0.05, max_RT=5)
+    choice_RTs = choice_RTs[choice_RTs[:, 1] > t0]
+
+    log_p = WFPTNormalDrift(v_loc=1.0, v_scale=1e-6, a=1.5, w=0.4, t0=t0).log_prob(
+        choice_RTs
+    )
+    expected = WFPT(v=1.0, a=1.5, w=0.4, t0=t0).log_prob(choice_RTs)
+
+    np.testing.assert_allclose(log_p, expected, rtol=1e-6)
 
 
 @pytest.mark.parametrize(

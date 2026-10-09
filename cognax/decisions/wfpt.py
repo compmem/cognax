@@ -237,19 +237,21 @@ class WFPTNormalDrift(DiscreteChoiceRT):
         RTs, w = jnp.broadcast_arrays(RTs, w)
         p = vmap_n(fnorm, n_times=RTs.ndim, x=(RTs - self.t0) / self.a**2, w=w)
 
-        return jnp.log(
-            jnp.exp(
-                jnp.log(p)
-                + (
-                    (self.a * w * self.v_scale) ** 2
-                    - 2 * self.a * v_loc * w
-                    - (v_loc**2) * RTs
-                )
-                / (2 * (self.v_scale**2) * (RTs - self.t0) + 2)
+        # decision time; clamped so the terms below stay finite before t0
+        t = jnp.maximum(RTs - self.t0, 0.0)
+        log_p = (
+            jnp.log(p)
+            + (
+                (self.a * w * self.v_scale) ** 2
+                - 2 * self.a * v_loc * w
+                - (v_loc**2) * t
             )
-            / jnp.sqrt((self.v_scale**2) * (RTs - self.t0) + 1)
-            / (self.a**2)
+            / (2 * (self.v_scale**2) * t + 2)
+            - 0.5 * jnp.log1p((self.v_scale**2) * t)
+            - 2 * jnp.log(self.a)
         )
+
+        return jnp.where(RTs > self.t0, log_p, -jnp.inf)
 
     def __init__(
         self, v_loc, v_scale, a, w, t0, dt=0.01, deadline=5.0, *, validate_args=None
